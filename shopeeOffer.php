@@ -1,32 +1,24 @@
-
 <?php
+
 date_default_timezone_set('America/Sao_Paulo');
-header('Content-Type: application/json');
 
 // === SUAS CREDENCIAIS ===
 $appId = '18395680234';       // ID do app afiliado
 $secret = '2ME7D7LNF6M6WMOMR7TGJUC7XRGHDS5D';      // chave secreta
 $timestamp = time();
 
-// === QUERY: TOP_PERFORMING (listType = 2) ===
+// === PAYLOAD GRAPHQL: busca por ofertas de "smartphone" ===
 $graphql = [
     "query" => "query {
-        productOfferV2(
-            listType: 2,
-            matchId: 0,
-            page: 1,
-            limit: 5
-        ) {
+        shopeeOfferV2(keyword: \"smartwatch\", sortType: 1, page: 1, limit: 5) {
             nodes {
-                productName
-                offerLink
-                imageUrl
-                priceMin
-                priceMax
-                ratingStar
-                sales
-                priceDiscountRate
+                offerName
                 commissionRate
+                offerLink
+                originalLink
+                imageUrl
+                periodStartTime
+                periodEndTime
             }
             pageInfo {
                 page
@@ -37,7 +29,7 @@ $graphql = [
     }"
 ];
 
-// === PREPARA PAYLOAD E ASSINATURA ===
+// === GERA A ASSINATURA ===
 $payload = json_encode($graphql, JSON_UNESCAPED_SLASHES);
 $stringToSign = $appId . $timestamp . $payload . $secret;
 $signature = hash('sha256', $stringToSign);
@@ -57,18 +49,7 @@ curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
 $response = curl_exec($ch);
 curl_close($ch);
 
-// === TRATA E EXIBE RESULTADO ===
+// === RESULTADO ===
 $data = json_decode($response, true);
-
-echo "🔎 Produtos TOP:\n\n";
-
-foreach ($data['data']['productOfferV2']['nodes'] as $item) {
-    echo "📦 Produto: {$item['productName']}\n";
-    echo "💰 Preço: R$ {$item['priceMin']} - R$ {$item['priceMax']}\n";
-    echo "⭐ Avaliação: {$item['ratingStar']} ⭐\n";
-    echo "📉 Desconto: " . ($item['priceDiscountRate'] ?? 0) . "%\n";
-    echo "💸 Comissão: " . round($item['commissionRate'] * 100, 2) . "%\n";
-    echo "🔗 Link afiliado: {$item['offerLink']}\n";
-    echo "🖼️ Imagem: {$item['imageUrl']}\n";
-    echo "========================\n\n";
-}
+echo "RESULTADO:\n";
+print_r($data);

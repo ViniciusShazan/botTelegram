@@ -1,128 +1,146 @@
-<<<<<<< HEAD
-
 <?php
+
+date_default_timezone_set('America/Sao_Paulo');
 header('Content-Type: application/json');
 
-// Verifica se o método da requisição é POST
+// === VERIFICA MÉTODO ===
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['erro' => 'Método não permitido. Use POST.']);
     exit;
 }
 
-// Recebe os dados do corpo da requisição
+// === RECEBE JSON ===
 $dados = json_decode(file_get_contents('php://input'), true);
 
-// Valida os dados
-$camposObrigatorios = ['nome', 'preco', 'cupom', 'codigos', 'link', 'openrouter_key', 'bot_token', 'chat_id'];
-foreach ($camposObrigatorios as $campo) {
+// === VALIDA CAMPOS OBRIGATÓRIOS ===
+$campos = ['app_id', 'app_secret', 'bot_token', 'chat_id'];
+foreach ($campos as $campo) {
     if (empty($dados[$campo])) {
         http_response_code(400);
-        echo json_encode(['erro' => "Dados incompletos. Campo obrigatório faltando: {$campo}"]);
+        echo json_encode(['erro' => "Faltando campo obrigatório: {$campo}"]);
         exit;
     }
 }
 
-// Função para enviar mensagem ao Telegram
-function enviarMensagemTelegram($botToken, $chatId, $texto) {
-    // Envia a mensagem
-    $url = "https://api.telegram.org/bot{$botToken}/sendMessage";
-    $dados = [
-        'chat_id' => $chatId,
-        'text' => $texto,
-        'parse_mode' => 'Markdown'
-    ];
+$appId = $dados['app_id'];
+$secret = $dados['app_secret'];
+$botToken = $dados['bot_token'];
+$chatId = $dados['chat_id'];
+$timestamp = time();
 
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $dados);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    $resposta = curl_exec($ch);
-    curl_close($ch);
+// === MONTAR GRAPHQL ===
+$graphql = [
+    "query" => "query {
+        productOfferV2(
+            listType: 2,
+            matchId: 0,
+            page: 1,
+            limit: 5
+        ) {
+            nodes {
+                productName
+                offerLink
+                imageUrl
+                priceMin
+                priceMax
+                ratingStar
+                sales
+                priceDiscountRate
+                commissionRate
+            }
+        }
+    }"
+];
 
-    return $resposta;
-}
+// === PREPARA PAYLOAD E ASSINATURA ===
+$payload = json_encode($graphql, JSON_UNESCAPED_SLASHES);
+$stringToSign = $appId . $timestamp . $payload . $secret;
+$signature = hash('sha256', $stringToSign);
 
-// Monta o texto da mensagem
-$texto = "**{$dados['nome']}** em excelente preço! Uma das mais vendidas!\n\n";
-$texto .= "**R$ {$dados['preco']}** com cupom da loja **{$dados['cupom']}** + código **{$dados['codigos']}** + X moedas no APP\n\n";
-$texto .= "[{$dados['link']}]({$dados['link']})\n";
-$texto .= "[{$dados['link']}]({$dados['link']})\n";
-$texto .= "[{$dados['link']}]({$dados['link']})\n\n";
-$texto .= "**PREÇO FINAL JÁ COM IMPOSTOS**\n\n";
-$texto .= "Chame seus amigos para economizar com a gente!\n";
-$texto .= "- Junte-se ao nosso canal no Telegram:\n";
-$texto .= "https://t.me/pantpromoshopee\n\n";
-$texto .= "Não perca essa oportunidade!";
+$headers = [
+    "Authorization:SHA256 Credential={$appId}, Timestamp={$timestamp}, Signature={$signature}",
+    "Content-Type: application/json"
+];
 
-// Envia a mensagem para o Telegram
-$resposta = enviarMensagemTelegram($dados['bot_token'], $dados['chat_id'], $texto);
 
-// Retorna a resposta
-echo $resposta;
-=======
+// === ENVIA PARA API DA SHOPEE
+$ch = curl_init('https://open-api.affiliate.shopee.com.br/graphql');
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+$response = curl_exec($ch);
+curl_close($ch);
 
-<?php
-header('Content-Type: application/json');
+$data = json_decode($response, true);
 
-// Verifica se o método da requisição é POST
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['erro' => 'Método não permitido. Use POST.']);
+// === VERIFICA RESPOSTA DA SHOPEE
+if (!isset($data['data']['productOfferV2']['nodes']) || empty($data['data']['productOfferV2']['nodes'])) {
+    http_response_code(500);
+    echo json_encode(['erro' => 'Nenhum produto retornado pela Shopee', 'resposta' => $data]);
     exit;
 }
 
-// Recebe os dados do corpo da requisição
-$dados = json_decode(file_get_contents('php://input'), true);
+$produtos = $data['data']['productOfferV2']['nodes'];
 
-// Valida os dados
-$camposObrigatorios = ['nome', 'preco', 'cupom', 'codigos', 'link', 'openrouter_key', 'bot_token', 'chat_id'];
-foreach ($camposObrigatorios as $campo) {
-    if (empty($dados[$campo])) {
-        http_response_code(400);
-        echo json_encode(['erro' => "Dados incompletos. Campo obrigatório faltando: {$campo}"]);
-        exit;
-    }
-}
-
-// Função para enviar mensagem ao Telegram
-function enviarMensagemTelegram($botToken, $chatId, $texto) {
-    // Envia a mensagem
-    $url = "https://api.telegram.org/bot{$botToken}/sendMessage";
+// === FUNÇÃO PARA ENVIAR AO TELEGRAM
+function enviarMensagemTelegram($botToken, $chatId, $mensagem, $imagemUrl) {
+    $url = "https://api.telegram.org/bot{$botToken}/sendPhoto";
     $dados = [
         'chat_id' => $chatId,
-        'text' => $texto,
-        'parse_mode' => 'Markdown'
+        'photo' => $imagemUrl,
+        'caption' => $mensagem,
+        'parse_mode' => 'Markdown',
     ];
 
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
+    $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $dados);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     $resposta = curl_exec($ch);
+    $info = curl_getinfo($ch);
     curl_close($ch);
 
-    return $resposta;
+    return [
+        'http_code' => $info['http_code'],
+        'resposta' => json_decode($resposta, true)
+    ];
 }
 
-// Monta o texto da mensagem
-$texto = "**{$dados['nome']}** em excelente preço! Uma das mais vendidas!\n\n";
-$texto .= "**R$ {$dados['preco']}** com cupom da loja **{$dados['cupom']}** + código **{$dados['codigos']}** + X moedas no APP\n\n";
-$texto .= "[{$dados['link']}]({$dados['link']})\n";
-$texto .= "[{$dados['link']}]({$dados['link']})\n";
-$texto .= "[{$dados['link']}]({$dados['link']})\n\n";
-$texto .= "**PREÇO FINAL JÁ COM IMPOSTOS**\n\n";
-$texto .= "Chame seus amigos para economizar com a gente!\n";
-$texto .= "- Junte-se ao nosso canal no Telegram:\n";
-$texto .= "https://t.me/pantpromoshopee\n\n";
-$texto .= "Não perca essa oportunidade!";
 
-// Envia a mensagem para o Telegram
-$resposta = enviarMensagemTelegram($dados['bot_token'], $dados['chat_id'], $texto);
+// === ENVIA PRODUTOS PARA TELEGRAM E COLETA RESULTADOS
+$resultados = [];
 
-// Retorna a resposta
-echo $resposta;
->>>>>>> 5131c9c (Short link)
-?>
+foreach ($produtos as $item) {
+    $nome = $item['productName'];
+    $preco = number_format($item['priceMin'], 2, ',', '.');
+    $avaliacao = $item['ratingStar'];
+    $desconto = $item['priceDiscountRate'] ?? 0;
+    $link = $item['offerLink'];
+    $comissao = round($item['commissionRate'] * 100, 2);
+
+    $mensagem = "**{$nome}** em promoção! 🔥\n\n";
+    $mensagem .= "**R$ {$preco}** com até *{$desconto}%* de desconto\n";
+    $mensagem .= "⭐ Avaliação: {$avaliacao}/5\n";
+    $mensagem .= "💸 Comissão: {$comissao}%\n\n";
+    $mensagem .= "[👉 Compre agora com nosso link afiliado!]({$link})\n\n";
+    $mensagem .= "📢 Junte-se ao nosso canal para mais ofertas:\n";
+    $mensagem .= "https://t.me/pantpromoshopee";
+
+    $imagemUrl = $item['imageUrl'];
+    $res = enviarMensagemTelegram($botToken, $chatId, $mensagem, $imagemUrl);
+    $resultados[] = [
+        'produto' => $nome,
+        'enviado' => $res['http_code'] === 200,
+        'telegram_resposta' => $res['resposta']
+    ];
+
+    sleep(1.5); // evitar flood
+}
+
+echo json_encode([
+    'status' => 'ok',
+    'total_enviados' => count($resultados),
+    'detalhes' => $resultados
+], JSON_PRETTY_PRINT);
